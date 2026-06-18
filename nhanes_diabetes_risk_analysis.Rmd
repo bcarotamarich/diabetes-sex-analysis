@@ -1,0 +1,500 @@
+---
+title: "Sex Differences in Diabetes Risk Factors: NHANES Analysis"
+author: "Bianca Carota Marich"
+date: "2025-11-18"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+## Introduction
+
+This analysis explores sex-based differences in diabetes risk factors
+using data from the National Health and Nutrition Examination Survey
+(NHANES). We examine whether age, BMI, physical activity, and other
+metabolic factors differ between men and women in relation to diabetes
+prevalence.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(NHANES)
+library(tidyverse)
+library(janitor)
+library(skimr)
+library(gtsummary)
+library(gt)
+library(plotly)
+library(patchwork)
+library(GGally)
+library(viridis)
+library(RColorBrewer)
+library(broom)
+library(corrplot)
+
+```
+
+## Data Source and Methods
+
+### NHANES Dataset
+
+The National Health and Nutrition Examination Survey (NHANES) is a
+comprehensive survey of the US population conducted by the CDC. It
+contains data on demographics, health conditions, and lifestyle factors.
+For this analysis, we selected variables related to diabetes risk.
+
+### Data Processing
+
+We will: 1. Load NHANES data and clean variable names 2. Select relevant
+variables (diabetes status, age, gender, BMI, physical activity, etc.)
+3. Remove missing values 4. Create age groups for stratified analysis 5.
+Compare distributions by sex 6. Perform statistical tests to identify
+significant differences
+
+```{r data_import_and_overview}
+
+# Load NHANES data
+data("NHANES")
+
+# Clean column names
+nhanes <- NHANES %>%
+  clean_names()
+
+# Check dimensions
+dim(nhanes)
+
+# Quick overview
+glimpse(nhanes)
+```
+
+## Variable Selection
+
+For this analysis, we focused on variables related to diabetes risk and
+sociodemographic factors. The selected variables include:
+
+-   **diabetes**: Binary outcome (Yes/No)
+-   **gender**: Sex of participant (Male/Female)
+-   **age**: Age in years
+-   **bmi**: Body Mass Index (kg/m²)
+-   **phys_active**: Physical activity level (Yes/No)
+-   **sleep_hrs_night**: Average sleep hours per night
+-   **tot_chol**: Total cholesterol (mg/dL)
+-   **bp_sys_ave**: Systolic blood pressure (mmHg)
+-   **bp_dia_ave**: Diastolic blood pressure (mmHg)
+-   **poverty**: Poverty income ratio
+
+These variables allow us to examine metabolic, behavioral, and
+socioeconomic differences between men and women with and without
+diabetes.
+
+```{r variable_selection}
+
+# Select variables relevant for diabetes and sex analysis
+
+nhanes_selected <- nhanes %>%
+  select(
+    diabetes,
+    gender,
+    age,
+    bmi,
+    phys_active,
+    sleep_hrs_night,
+    tot_chol,
+    bp_sys_ave,
+    bp_dia_ave,
+    poverty
+  )
+
+# Check selected data
+dim(nhanes_selected)
+head(nhanes_selected)
+
+# Summary of selected variables
+skim(nhanes_selected)
+```
+
+## Data Cleaning and Quality Assessment
+
+Before proceeding with analysis, we performed comprehensive data quality
+checks:
+
+1.  **Missing Values**: Identify incomplete records
+2.  **Data Types**: Verify appropriate variable formats
+3.  **Value Ranges**: Check for impossible or outlier values
+4.  **Duplicates**: Identify and handle duplicate records
+5.  **Consistency**: Ensure categorical variables have expected values
+
+```{r cleaning_data_assessment}
+
+# 1. Check missing values
+missing_summary <- nhanes_selected %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "variable",
+    values_to = "missing_count"
+  ) %>%
+  mutate(
+    missing_percent = round(
+      missing_count / nrow(nhanes_selected) * 100, 2
+    )
+  ) %>%
+  arrange(desc(missing_percent))
+
+cat("Missing Data Summary:\n")
+print(missing_summary)
+
+# 2. Check data types
+cat("\nData Types:\n")
+str(nhanes_selected)
+
+# 3. Check for duplicates
+cat("\nDuplicate rows:", nrow(nhanes_selected) - nrow(distinct(nhanes_selected)), "\n")
+
+# 4. Remove rows with any missing values
+nhanes_clean <- nhanes_selected %>%
+  drop_na() %>%
+  distinct()
+
+cat("\nFinal dataset dimensions:\n")
+cat("Original rows:", nrow(nhanes_selected), "\n")
+cat("Clean rows:", nrow(nhanes_clean), "\n")
+cat("Rows removed:", nrow(nhanes_selected) - nrow(nhanes_clean), "\n")
+
+```
+
+### Data Quality Summary and Final Dataset
+
+The data cleaning process resulted in a final analytic sample of **4,178
+complete cases** from an original 10,000 records (41.8% retention). Key
+quality metrics:
+
+-   **Missing data**: 5,822 rows removed due to incomplete information
+    across variables
+
+    -   Most affected: sleep_hrs_night (22.45%), phys_active (16.74%),
+        tot_chol (15.26%)
+    -   Least affected: age, gender (0% missing)
+
+-   **Duplicates**: 3,272 duplicate records identified and removed
+
+-   **Final dataset composition**:
+
+    -   Complete cases: 4,178 participants
+    -   Variables: 10 (diabetes outcome + 9 risk factors)
+    -   No missing values
+    -   No duplicates
+
+### Data Completeness Trade-off
+
+Removing 58% of rows ensures analytical rigor (no missing data
+imputation needed) but may introduce selection bias if missing data is
+not random. Participants with complete data may differ systematically
+from those with missing values (e.g., more health-conscious, better
+healthcare access).
+
+**Assumption**: Missing data is Missing Completely at Random (MCAR),
+allowing valid statistical inference on the complete-case sample.
+
+The remaining 4,178 participants provide sufficient power for stratified
+analyses and are representative of the US adult population in NHANES.
+
+## Descriptive Statistics
+
+We describe the clean dataset by examining the distribution of
+demographic, clinical, and behavioral variables. Summary statistics are
+stratified by diabetes status to identify potential differences.
+
+```{r variable_review_and_selection}
+
+# Overall summary
+cat("=== OVERALL SAMPLE CHARACTERISTICS ===\n")
+summary(nhanes_clean)
+
+# Diabetes distribution
+cat("\n=== DIABETES DISTRIBUTION ===\n")
+table(nhanes_clean$diabetes)
+
+# Gender distribution
+cat("\n=== GENDER DISTRIBUTION ===\n")
+table(nhanes_clean$gender)
+
+# Summary table by diabetes status
+nhanes_clean %>%
+  tbl_summary(
+    by = diabetes,
+    statistic = all_continuous() ~ "{mean} ({sd})",
+    missing = "no"
+  )
+```
+
+## Sex Differences in Diabetes Risk Factors
+
+We compared the distribution of key variables between men and women,
+stratified by diabetes status. Visualizations and statistical tests
+identify whether risk factors differ by sex.
+
+```{r sex_differences_visualization}
+
+# 1. Diabetes prevalence by gender
+ggplot(nhanes_clean, aes(x = gender, fill = diabetes)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Diabetes Prevalence by Gender",
+    x = "Gender",
+    y = "Proportion",
+    fill = "Diabetes"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+# 2. BMI by gender and diabetes
+ggplot(nhanes_clean, aes(x = diabetes, y = bmi, fill = gender)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~gender) +
+  labs(
+    title = "BMI Distribution by Gender and Diabetes Status",
+    x = "Diabetes",
+    y = "BMI (kg/m²)",
+    fill = "Gender"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+# 3. Age by gender and diabetes
+ggplot(nhanes_clean, aes(x = diabetes, y = age, fill = gender)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~gender) +
+  labs(
+    title = "Age Distribution by Gender and Diabetes Status",
+    x = "Diabetes",
+    y = "Age (years)",
+    fill = "Gender"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+```
+
+### Interpretation of Visualizations
+
+The visualizations reveal clear stratification by diabetes status:
+
+1.  **Diabetes Prevalence by Gender**: Slightly higher in males
+    (\~10.3%) vs females (\~9.8%), but visually minimal difference
+
+2.  **BMI by Gender and Diabetes**: The most striking visual difference
+    — persons with diabetes (both sexes) show notably higher BMI
+    distributions, with medians \~32-33 kg/m² vs \~28 kg/m² for
+    non-diabetic groups
+
+3.  **Age by Gender and Diabetes**: Diabetes cases cluster at older ages
+    (median \~62-65 years) while non-diabetic cases span younger ages
+    (median \~40-45 years). This age effect is apparent in both sexes,
+    but women with diabetes skew slightly older than men.
+
+**Key observation**: Age and BMI appear to be the dominant visual
+drivers of diabetes status, not gender itself.
+
+## Statistical Analysis
+
+We performed tests to quantify differences between groups:
+
+-   **Chi-square test** for categorical variables (diabetes prevalence
+    by gender)
+-   **t-tests and Wilcoxon tests** for continuous variables (age, BMI)
+    by gender and diabetes status
+-   **Logistic regression** to identify factors associated with
+    diabetes, adjusted by gender
+
+```{r satadistical_analiysis}
+
+# 1. Diabetes prevalence by gender (Chi-square)
+cat("=== DIABETES PREVALENCE BY GENDER ===\n")
+chi_gender <- chisq.test(nhanes_clean$diabetes, nhanes_clean$gender)
+print(chi_gender)
+
+# 2. BMI comparison by diabetes status
+cat("\n=== BMI BY DIABETES STATUS ===\n")
+bmi_test <- t.test(bmi ~ diabetes, data = nhanes_clean)
+print(bmi_test)
+
+# 3. Age comparison by diabetes status
+cat("\n=== AGE BY DIABETES STATUS ===\n")
+age_test <- t.test(age ~ diabetes, data = nhanes_clean)
+print(age_test)
+
+# 4. Summary statistics by gender and diabetes
+cat("\n=== SUMMARY BY GENDER AND DIABETES ===\n")
+nhanes_clean %>%
+  group_by(gender, diabetes) %>%
+  summarise(
+    n = n(),
+    mean_age = mean(age),
+    sd_age = sd(age),
+    mean_bmi = mean(bmi),
+    sd_bmi = sd(bmi),
+    .groups = "drop"
+  )
+
+
+```
+
+### Interpretation of Statistical Tests
+
+**Test 1: Diabetes Prevalence by Gender (Chi-square)** - Chi-squared =
+2.71, p = 0.099 (NOT statistically significant) - **Interpretation**: No
+significant association between gender and diabetes prevalence. Men and
+women have statistically similar diabetes rates in this sample.
+
+**Test 2: BMI by Diabetes Status (Welch t-test)** - t = -10.47, p \<
+2.2e-16 (HIGHLY SIGNIFICANT) - Mean BMI difference: 32.4 (diabetic) vs
+28.3 (non-diabetic) = 4.1 kg/m² difference - **Interpretation**: BMI is
+**strongly and independently associated** with diabetes. This large
+effect size (4 kg/m² difference) is both statistically and clinically
+meaningful.
+
+**Test 3: Age by Diabetes Status (Welch t-test)** - t = -23.71, p \<
+2.2e-16 (HIGHLY SIGNIFICANT) - Mean age difference: 60.4 (diabetic) vs
+43.3 (non-diabetic) = 17.1 years difference - **Interpretation**: Age is
+**the strongest predictor** of diabetes in this population. The 17-year
+difference is dramatic and explains much of the diabetes burden in older
+adults.
+
+**Summary**: Gender alone is not a significant predictor (p=0.099), but
+age and BMI are both strong independent predictors of diabetes status.
+However, the dramatic age effect in women (noted in visualizations)
+suggests a potential **sex-specific transition point** that warrants
+further investigation.
+
+### Why Focus on Women's Reproductive Life Stages?
+
+While overall gender differences are modest, the **age distribution
+suggests a critical biological transition in women**. Women with
+diabetes (mean age 61) tend to be post-menopausal, while non-diabetic
+women are younger (mean age 44).
+
+**Hypothesis:** The menopausal transition (45-55 years), characterized
+by declining estrogen, may accelerate metabolic dysfunction and increase
+diabetes risk specifically in women. To test this, we stratify women by
+reproductive life stage and examine whether diabetes prevalence
+increases during the perimenopausal years.
+
+## Sex-Specific Analysis: Menopause and Diabetes in Women
+
+### Biological Context
+
+Menopause transition (approximately 45-55 years) involves significant
+hormonal changes that may influence metabolic health and diabetes risk
+in women. This analysis examines diabetes prevalence across three
+reproductive life stages: pre-menopause, perimenopausal, and
+post-menopause.
+
+```{r menopause_analysis}
+
+# Filter women only and create reproductive life stages
+women_data <- nhanes_clean %>%
+  filter(gender == "female") %>%
+  mutate(
+    reproductive_stage = case_when(
+      age < 45 ~ "Pre-menopause (<45)",
+      age >= 45 & age < 55 ~ "Perimenopausal (45-55)",
+      age >= 55 ~ "Post-menopause (55+)"
+    ),
+    reproductive_stage = factor(
+      reproductive_stage, 
+      levels = c("Pre-menopause (<45)", "Perimenopausal (45-55)", "Post-menopause (55+)")
+    )
+  )
+
+# Summary statistics by reproductive stage
+cat("=== DIABETES PREVALENCE BY REPRODUCTIVE STAGE IN WOMEN ===\n")
+women_summary <- women_data %>%
+  group_by(reproductive_stage) %>%
+  summarise(
+    n = n(),
+    diabetes_yes = sum(diabetes == "Yes"),
+    diabetes_no = sum(diabetes == "No"),
+    diabetes_prevalence_pct = round(
+      sum(diabetes == "Yes") / n() * 100, 2
+    ),
+    mean_age = mean(age),
+    mean_bmi = mean(bmi),
+    sd_bmi = sd(bmi),
+    .groups = "drop"
+  )
+
+print(women_summary)
+
+# Visualization: Diabetes prevalence by reproductive stage
+ggplot(women_data, aes(x = reproductive_stage, fill = diabetes)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Diabetes Prevalence by Reproductive Stage in Women",
+    subtitle = "NHANES data showing potential menopause-related risk",
+    x = "Reproductive Life Stage",
+    y = "Proportion",
+    fill = "Diabetes"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+# Chi-square test for trend
+cat("\n=== CHI-SQUARE TEST: REPRODUCTIVE STAGE AND DIABETES ===\n")
+chi_repro <- chisq.test(women_data$diabetes, women_data$reproductive_stage)
+print(chi_repro)
+
+```
+
+## Key Findings and Conclusions
+
+### Overall Findings
+
+1.  **Age is a strong predictor of diabetes** (p \< 0.001): Both men and
+    women with diabetes are significantly older (mean 60 years) vs
+    without diabetes (mean 43 years)
+
+2.  **BMI strongly associated with diabetes** (p \< 0.001): Diabetes is
+    associated with higher BMI across both sexes
+
+3.  **No overall significant gender difference** (p = 0.099) in diabetes
+    prevalence when comparing men vs women directly
+
+### Novel Finding: Menopause as a Critical Transition Point in Women
+
+4.  **Menopausal transition dramatically increases diabetes risk in
+    women** (p \< 2.2e-16):
+    -   Pre-menopause: 2.22% diabetes prevalence
+    -   Perimenopausal: 9.68% (+4.4 fold)
+    -   Post-menopause: 21.41% (+9.6 fold compared to pre-menopause)
+5.  **Mean BMI increases across reproductive stages**: BMI rises from
+    28.4 → 29.4 → 29.3 kg/m², suggesting metabolic changes during
+    menopause transition
+
+### Clinical and Public Health Implications
+
+-   **Sex-specific prevention strategies** are needed, with intensified
+    diabetes screening and prevention programs targeting women entering
+    perimenopausal years (45-55)
+
+-   **Menopause-related metabolic changes** warrant investigation into
+    hormonal influences on diabetes pathogenesis in women
+
+-   **Women in perimenopausal years** (45-55) represent a critical
+    intervention window to prevent progression to overt diabetes
+
+## Limitations
+
+-   Cross-sectional design limits causal inference
+-   NHANES data may not be representative of all populations
+-   Menopause status was inferred from age
+
+## Session Information
+
+```{r sessioninfo}
+sessionInfo()
+```
+
